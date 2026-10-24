@@ -80,17 +80,16 @@ pnpm dev
 
 ---
 
-## 📊 Completed Roadmap (Sprint 1 & 2 Foundations)
+## 📊 Completed Production Roadmap (100% Built)
 
-- [x] Turborepo + pnpm monorepo structure
-- [x] PostgreSQL `btree_gist` exclusion constraints and custom migration
-- [x] Complete Prisma schema modeling all 24 entities from PRD Section 7
-- [x] Role-Based Access Control (`RolesGuard`, `JwtAuthGuard`)
-- [x] Workspace multi-tenant query isolation
-- [x] Location and timezone management (IANA)
-- [x] Services catalog with buffer-before and buffer-after durations
-- [x] Staff weekly schedules, breaks, and date-specific exceptions
-- [x] Availability calculation engine
-- [x] Concurrency-safe temporary holds (5-minute expiration)
-- [x] Modern 4-step Customer Booking Portal UI (`/book/[slug]`)
-- [x] Business Operational Dashboard & Real-Time Hold Monitor UI (`/dashboard`)
+- [x] **Sprint 1 (Foundations)**: Monorepo (Turborepo + pnpm), Prisma schema (26 models), PostgreSQL `btree_gist` exclusion constraints, JWT auth, RBAC.
+- [x] **Sprint 2 (Business Configuration)**: Locations with IANA timezones, Services catalog with setup/cleanup buffers, Staff weekly schedules with breaks and time-off overrides.
+- [x] **Sprint 3 (Availability Engine)**: Conflict-safe candidate slot generator intersecting location hours, staff shifts, service buffers, existing allocations, and active unexpired holds.
+- [x] **Sprint 4 (Booking Engine & Concurrency)**: 5-minute atomic holds, transactional advisory locking (`pg_advisory_xact_lock`), idempotency key verification.
+- [x] **Sprint 5 (Experience & Portal)**: 4-step Customer Booking Wizard (`/book/[slug]`), Business Operational Dispatch Dashboard (`/dashboard`).
+- [x] **Sprint 6 (MVP Hardening & Concurrency Tests)**: Automated 100-request simultaneous burst test (`tests/concurrency.test.ts`), error contracts (`SLOT_UNAVAILABLE`).
+- [x] **Sprint 7 (Payments & Reconciliation)**: Checkout sessions, webhook handler with HMAC signature checks, refund tracking, and late payment reconciliation (`PAYMENT_REVIEW`).
+- [x] **Sprint 8 (Calendar Integrations)**: Google / Microsoft calendar connections, external busy interval imports, token management.
+- [x] **Sprint 9 (Commercial SaaS Features)**: Analytics & financial intelligence studio (`/dashboard/analytics`), customer self-service rescheduling (`/book/[slug]/reschedule`).
+- [x] **Sprint 10 (Developer Platform)**: API Keys (`sk_live_...`), HMAC SHA-256 signed webhooks (`whsec_...`), 1-line embeddable widget SDK (`apps/web/public/widget.js`), and embed page (`/embed/[slug]`).
+- [x] **Background Worker Service (`apps/worker`)**: Hold expiry worker, outbox event processor, and calendar sync runner.
