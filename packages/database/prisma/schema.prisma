@@ -1,0 +1,551 @@
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [btree_gist, uuid_ossp(map: "uuid-ossp")]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+// -------------------------------------------------------------
+// ENUMS
+// -------------------------------------------------------------
+
+enum WorkspaceRole {
+  OWNER
+  MANAGER
+  STAFF
+  RECEPTIONIST
+}
+
+enum BookingStatus {
+  HELD
+  PENDING_PAYMENT
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  EXPIRED
+  PAYMENT_REVIEW
+}
+
+enum HoldStatus {
+  ACTIVE
+  CONVERTED
+  RELEASED
+  EXPIRED
+}
+
+enum AllocationStatus {
+  HELD
+  CONFIRMED
+  CANCELLED
+  RELEASED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentProvider {
+  STRIPE
+  RAZORPAY
+  MANUAL
+}
+
+enum ExceptionType {
+  TIME_OFF
+  CUSTOM_HOURS
+  HOLIDAY
+}
+
+enum ResourceType {
+  STAFF
+  ROOM
+  EQUIPMENT
+  CHAIR
+}
+
+// -------------------------------------------------------------
+// CORE AUTH & MULTI-TENANCY
+// -------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String
+  verifiedAt   DateTime? @map("verified_at")
+  avatarUrl    String?   @map("avatar_url")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  memberships   WorkspaceMember[]
+  staffProfiles StaffProfile[]
+  auditEvents   AuditEvent[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  slug            String   @unique
+  ownerId         String   @map("owner_id") @db.Uuid
+  defaultTimezone String   @default("UTC") @map("default_timezone")
+  currency        String   @default("USD")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  members             WorkspaceMember[]
+  locations           Location[]
+  services            Service[]
+  staffProfiles       StaffProfile[]
+  resources           Resource[]
+  customers           Customer[]
+  bookings            Booking[]
+  auditEvents         AuditEvent[]
+  idempotencyRecords  IdempotencyRecord[]
+  notifications       Notification[]
+  outboxEvents        OutboxEvent[]
+  calendarConnections CalendarConnection[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @map("workspace_id") @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  role        WorkspaceRole @default(STAFF)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+// -------------------------------------------------------------
+// LOCATIONS & BUSINESS CONFIGURATION
+// -------------------------------------------------------------
+
+model Location {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  name        String
+  slug        String
+  timezone    String   // IANA timezone identifier e.g., "America/New_York", "Asia/Kolkata"
+  address     String?
+  phone       String?
+  email       String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  serviceLocations ServiceLocation[]
+  staffLocations   StaffLocation[]
+  resources        Resource[]
+  bookings         Booking[]
+  workingHours     WorkingHours[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@map("locations")
+}
+
+// -------------------------------------------------------------
+// SERVICES CATALOG
+// -------------------------------------------------------------
+
+model Service {
+  id                   String   @id @default(uuid()) @db.Uuid
+  workspaceId          String   @map("workspace_id") @db.Uuid
+  name                 String
+  description          String?
+  durationMinutes      Int      @map("duration_minutes")
+  bufferBeforeMinutes  Int      @default(0) @map("buffer_before_minutes")
+  bufferAfterMinutes   Int      @default(0) @map("buffer_after_minutes")
+  priceMinor           Int      @map("price_minor") // In minor units (cents / paise)
+  currency             String   @default("USD")
+  bookingLeadMinutes   Int      @default(60) @map("booking_lead_minutes")
+  bookingHorizonDays   Int      @default(60) @map("booking_horizon_days")
+  isPublic             Boolean  @default(true) @map("is_public")
+  requiresRoomResource Boolean  @default(false) @map("requires_room_resource")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  serviceLocations ServiceLocation[]
+  staffServices    StaffService[]
+  bookings         Booking[]
+
+  @@index([workspaceId])
+  @@map("services")
+}
+
+model ServiceLocation {
+  serviceId  String @map("service_id") @db.Uuid
+  locationId String @map("location_id") @db.Uuid
+
+  service  Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, locationId])
+  @@map("service_locations")
+}
+
+// -------------------------------------------------------------
+// STAFF & SCHEDULING RESOURCES
+// -------------------------------------------------------------
+
+model StaffProfile {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid
+  displayName String   @map("display_name")
+  bio         String?
+  avatarUrl   String?  @map("avatar_url")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user                User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  staffLocations      StaffLocation[]
+  staffServices       StaffService[]
+  workingHours        WorkingHours[]
+  scheduleExceptions  ScheduleException[]
+  calendarConnections CalendarConnection[]
+
+  @@index([workspaceId])
+  @@map("staff_profiles")
+}
+
+model StaffLocation {
+  staffId    String @map("staff_id") @db.Uuid
+  locationId String @map("location_id") @db.Uuid
+
+  staff    StaffProfile @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  location Location     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, locationId])
+  @@map("staff_locations")
+}
+
+model StaffService {
+  staffId   String @map("staff_id") @db.Uuid
+  serviceId String @map("service_id") @db.Uuid
+
+  staff   StaffProfile @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  service Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, serviceId])
+  @@map("staff_services")
+}
+
+model Resource {
+  id          String       @id @default(uuid()) @db.Uuid
+  workspaceId String       @map("workspace_id") @db.Uuid
+  locationId  String       @map("location_id") @db.Uuid
+  type        ResourceType @default(ROOM)
+  name        String
+  capacity    Int          @default(1)
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  location  Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, locationId])
+  @@map("resources")
+}
+
+model WorkingHours {
+  id         String   @id @default(uuid()) @db.Uuid
+  staffId    String   @map("staff_id") @db.Uuid
+  locationId String   @map("location_id") @db.Uuid
+  weekday    Int      // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  startLocal String   @map("start_local") // "09:00" in 24hr format
+  endLocal   String   @map("end_local")   // "17:00" in 24hr format
+  breakStart String?  @map("break_start") // "13:00" optional break
+  breakEnd   String?  @map("break_end")   // "14:00" optional break
+
+  staff    StaffProfile @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  location Location     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([staffId, locationId, weekday])
+  @@map("working_hours")
+}
+
+model ScheduleException {
+  id         String        @id @default(uuid()) @db.Uuid
+  staffId    String        @map("staff_id") @db.Uuid
+  date       String        // "YYYY-MM-DD"
+  type       ExceptionType @default(TIME_OFF)
+  startLocal String?       @map("start_local")
+  endLocal   String?       @map("end_local")
+  reason     String?
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  staff StaffProfile @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId, date])
+  @@map("schedule_exceptions")
+}
+
+// -------------------------------------------------------------
+// CUSTOMERS & BOOKINGS
+// -------------------------------------------------------------
+
+model Customer {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  name        String
+  email       String
+  phone       String?
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  bookings  Booking[]
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
+  @@map("customers")
+}
+
+model Booking {
+  id           String        @id @default(uuid()) @db.Uuid
+  workspaceId  String        @map("workspace_id") @db.Uuid
+  locationId   String        @map("location_id") @db.Uuid
+  serviceId    String        @map("service_id") @db.Uuid
+  customerId   String        @map("customer_id") @db.Uuid
+  status       BookingStatus @default(HELD)
+  startsAt     DateTime      @map("starts_at")
+  endsAt       DateTime      @map("ends_at")
+  totalMinor   Int           @map("total_minor")
+  currency     String        @default("USD")
+  customerNote String?       @map("customer_note")
+  internalNote String?       @map("internal_note")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  workspace   Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  location    Location                @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  service     Service                 @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  customer    Customer                @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  holds       BookingHold[]
+  allocations ReservationAllocation[]
+  events      BookingEvent[]
+  payments    Payment[]
+
+  @@index([workspaceId, locationId, startsAt])
+  @@index([workspaceId, status])
+  @@index([customerId])
+  @@map("bookings")
+}
+
+model BookingHold {
+  id        String     @id @default(uuid()) @db.Uuid
+  bookingId String     @map("booking_id") @db.Uuid
+  token     String     @unique // Secure opaque management token
+  status    HoldStatus @default(ACTIVE)
+  expiresAt DateTime   @map("expires_at")
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([status, expiresAt])
+  @@map("booking_holds")
+}
+
+model ReservationAllocation {
+  id         String           @id @default(uuid()) @db.Uuid
+  bookingId  String           @map("booking_id") @db.Uuid
+  resourceId String           @map("resource_id") @db.Uuid
+  status     AllocationStatus @default(HELD)
+  startsAt   DateTime         @map("starts_at")
+  endsAt     DateTime         @map("ends_at")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([resourceId])
+  @@map("reservation_allocations")
+}
+
+model BookingEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  bookingId String   @map("booking_id") @db.Uuid
+  eventType String   @map("event_type")
+  actorId   String?  @map("actor_id") @db.Uuid
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@map("booking_events")
+}
+
+// -------------------------------------------------------------
+// PAYMENTS & RECONCILIATION
+// -------------------------------------------------------------
+
+model Payment {
+  id                String          @id @default(uuid()) @db.Uuid
+  bookingId         String          @map("booking_id") @db.Uuid
+  provider          PaymentProvider @default(STRIPE)
+  providerPaymentId String          @unique @map("provider_payment_id")
+  amountMinor       Int             @map("amount_minor")
+  currency          String          @default("USD")
+  status            PaymentStatus   @default(PENDING)
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  booking Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  refunds Refund[]
+
+  @@index([bookingId])
+  @@map("payments")
+}
+
+model Refund {
+  id               String        @id @default(uuid()) @db.Uuid
+  paymentId        String        @map("payment_id") @db.Uuid
+  providerRefundId String        @unique @map("provider_refund_id")
+  amountMinor      Int           @map("amount_minor")
+  currency         String        @default("USD")
+  status           PaymentStatus @default(PENDING)
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+// -------------------------------------------------------------
+// EXTERNAL CALENDAR INTEGRATION
+// -------------------------------------------------------------
+
+model CalendarConnection {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @map("workspace_id") @db.Uuid
+  staffId        String    @map("staff_id") @db.Uuid
+  provider       String
+  tokenReference String    @map("token_reference")
+  syncCursor     String?   @map("sync_cursor")
+  isActive       Boolean   @default(true) @map("is_active")
+  lastSyncedAt   DateTime? @map("last_synced_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  staff     StaffProfile           @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  busyTimes ExternalBusyInterval[]
+
+  @@index([workspaceId, staffId])
+  @@map("calendar_connections")
+}
+
+model ExternalBusyInterval {
+  id              String   @id @default(uuid()) @db.Uuid
+  connectionId    String   @map("connection_id") @db.Uuid
+  externalEventId String   @map("external_event_id")
+  startsAt        DateTime @map("starts_at")
+  endsAt          DateTime @map("ends_at")
+  summary         String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  connection CalendarConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, startsAt, endsAt])
+  @@map("external_busy_intervals")
+}
+
+// -------------------------------------------------------------
+// IDEMPOTENCY, OUTBOX & AUDIT
+// -------------------------------------------------------------
+
+model IdempotencyRecord {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  operation   String
+  key         String
+  payloadHash String   @map("payload_hash")
+  status      String
+  response    Json?
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, operation, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+model AuditEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  actorId     String?  @map("actor_id") @db.Uuid
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id") @db.Uuid
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor     User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@map("audit_events")
+}
+
+model OutboxEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  type        String
+  payload     Json
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([publishedAt, createdAt])
+  @@map("outbox_events")
+}
+
+model Notification {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  recipient   String
+  channel     String
+  template    String
+  data        Json
+  status      String   @default("QUEUED")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@map("notifications")
+}

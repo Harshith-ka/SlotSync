@@ -1,0 +1,28 @@
+{
+  "name": "slotsync-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SlotSync - Multi-Tenant Booking & Scheduling Infrastructure SaaS",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "db:generate": "pnpm --filter @slotsync/database generate",
+    "db:push": "pnpm --filter @slotsync/database push",
+    "db:seed": "pnpm --filter @slotsync/database seed"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.4",
+    "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma"
+    ]
+  },
+  "packageManager": "pnpm@12.15.0"
+}
