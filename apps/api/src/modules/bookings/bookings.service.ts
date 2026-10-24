@@ -553,4 +553,136 @@ export class BookingsService {
       take: 50,
     });
   }
+
+  async rescheduleBooking(
+    workspaceSlug: string,
+    bookingId: string,
+    token: string,
+    newStartsAt: string,
+    newStaffId?: string,
+  ) {
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { slug: workspaceSlug },
+    });
+
+    if (!workspace) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Workspace not found.',
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.findFirst({
+        where: { id: bookingId, workspaceId: workspace.id },
+        include: {
+          holds: true,
+          service: true,
+          allocations: true,
+        },
+      });
+
+      if (!booking) {
+        throw new NotFoundException({
+          code: 'NOT_FOUND',
+          message: 'Booking not found.',
+        });
+      }
+
+      const hasValidToken = booking.holds.some((h) => h.token === token);
+      if (!hasValidToken) {
+        throw new UnauthorizedException({
+          code: 'UNAUTHORIZED',
+          message: 'Invalid booking credential.',
+        });
+      }
+
+      if (booking.status === BookingStatus.CANCELLED) {
+        throw new ConflictException({
+          code: 'BOOKING_ALREADY_CANCELLED',
+          message: 'Cannot reschedule a cancelled booking.',
+        });
+      }
+
+      const currentStaffAllocation = booking.allocations[0];
+      const targetStaffId = newStaffId || currentStaffAllocation?.resourceId;
+
+      if (!targetStaffId) {
+        throw new ConflictException({
+          code: 'NO_STAFF_ASSIGNED',
+          message: 'No staff assigned.',
+        });
+      }
+
+      const slotStart = new Date(newStartsAt);
+      const slotEnd = new Date(slotStart.getTime() + booking.service.durationMinutes * 60000);
+      const occupancyStart = new Date(slotStart.getTime() - booking.service.bufferBeforeMinutes * 60000);
+      const occupancyEnd = new Date(slotEnd.getTime() + booking.service.bufferAfterMinutes * 60000);
+
+      // Check conflict on new slot
+      const conflict = await tx.reservationAllocation.findFirst({
+        where: {
+          resourceId: targetStaffId,
+          bookingId: { not: booking.id },
+          startsAt: { lt: occupancyEnd },
+          endsAt: { gt: occupancyStart },
+          status: { in: [AllocationStatus.CONFIRMED, AllocationStatus.HELD] },
+        },
+      });
+
+      if (conflict) {
+        throw new ConflictException({
+          code: 'SLOT_UNAVAILABLE',
+          message: 'The requested new slot is not available. Your original appointment has been preserved.',
+        });
+      }
+
+      // Step 1: Release old allocations
+      await tx.reservationAllocation.deleteMany({
+        where: { bookingId: booking.id },
+      });
+
+      // Step 2: Create new allocation
+      await tx.reservationAllocation.create({
+        data: {
+          bookingId: booking.id,
+          resourceId: targetStaffId,
+          status: AllocationStatus.CONFIRMED,
+          startsAt: occupancyStart,
+          endsAt: occupancyEnd,
+        },
+      });
+
+      // Step 3: Update booking times
+      const updated = await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          startsAt: slotStart,
+          endsAt: slotEnd,
+          status: BookingStatus.CONFIRMED,
+        },
+      });
+
+      // Step 4: Audit Event
+      await tx.bookingEvent.create({
+        data: {
+          bookingId: booking.id,
+          eventType: 'BOOKING_RESCHEDULED',
+          metadata: {
+            oldStartsAt: booking.startsAt,
+            newStartsAt: slotStart,
+            staffId: targetStaffId,
+          },
+        },
+      });
+
+      return {
+        id: updated.id,
+        status: updated.status,
+        startsAt: updated.startsAt.toISOString(),
+        endsAt: updated.endsAt.toISOString(),
+        message: 'Appointment successfully rescheduled.',
+      };
+    });
+  }
 }

@@ -8,6 +8,10 @@ import { StaffModule } from './modules/staff/staff.module';
 import { AvailabilityModule } from './modules/availability/availability.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { PublicModule } from './modules/public/public.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { CalendarsModule } from './modules/calendars/calendars.module';
+import { DeveloperModule } from './modules/developer/developer.module';
 
 @Module({
   imports: [
@@ -20,6 +24,10 @@ import { PublicModule } from './modules/public/public.module';
     AvailabilityModule,
     BookingsModule,
     PublicModule,
+    PaymentsModule,
+    AnalyticsModule,
+    CalendarsModule,
+    DeveloperModule,
   ],
 })
 export class AppModule {}

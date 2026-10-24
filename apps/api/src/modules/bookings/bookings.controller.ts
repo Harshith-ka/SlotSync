@@ -50,6 +50,17 @@ export class BookingsController {
     return this.bookingsService.cancelBooking(slug, id, token, reason);
   }
 
+  @Post('public/:slug/bookings/:id/reschedule')
+  async rescheduleBooking(
+    @Param('slug') slug: string,
+    @Param('id') id: string,
+    @Query('token') token: string,
+    @Body('newStartsAt') newStartsAt: string,
+    @Body('newStaffId') newStaffId?: string,
+  ) {
+    return this.bookingsService.rescheduleBooking(slug, id, token, newStartsAt, newStaffId);
+  }
+
   // -------------------------------------------------------------
   // DASHBOARD INTERNAL ENDPOINTS
   // -------------------------------------------------------------

@@ -26,11 +26,11 @@ export default function DashboardLayout({
 
   const navItems = [
     { name: 'Overview', href: '/dashboard', icon: Layers },
-    { name: 'Calendar & Bookings', href: '/dashboard', icon: Calendar },
-    { name: 'Services', href: '/dashboard', icon: Scissors },
-    { name: 'Staff & Working Hours', href: '/dashboard', icon: Users },
-    { name: 'Locations', href: '/dashboard', icon: MapPin },
-    { name: 'Analytics & Revenue', href: '/dashboard', icon: TrendingUp },
+    { name: 'Services Catalog', href: '/dashboard/services', icon: Scissors },
+    { name: 'Staff & Working Hours', href: '/dashboard/staff', icon: Users },
+    { name: 'Locations & Timezones', href: '/dashboard/locations', icon: MapPin },
+    { name: 'Analytics & Revenue', href: '/dashboard/analytics', icon: TrendingUp },
+    { name: 'Developers & Webhooks', href: '/dashboard/developers', icon: Sparkles },
   ];
 
   return (

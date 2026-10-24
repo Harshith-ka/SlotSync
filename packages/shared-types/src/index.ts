@@ -40,7 +40,8 @@ export enum PaymentStatus {
   SUCCEEDED = 'SUCCEEDED',
   FAILED = 'FAILED',
   REFUNDED = 'REFUNDED',
-  PARTIALLY_REFUNDED = 'PARTIALLY_REFUNDED'
+  PARTIALLY_REFUNDED = 'PARTIALLY_REFUNDED',
+  RECONCILIATION_REQUIRED = 'RECONCILIATION_REQUIRED'
 }
 
 export enum PaymentProvider {
@@ -251,6 +252,14 @@ export interface ConfirmBookingDto {
   bookingId: string;
   bookingToken: string;
   customerNote?: string;
+  paymentMethodId?: string;
+}
+
+export interface RescheduleDto {
+  bookingId: string;
+  bookingToken: string;
+  newStartsAt: string;
+  newStaffId?: string;
 }
 
 export interface BookingResponse {
@@ -280,6 +289,102 @@ export interface BookingResponse {
     id: string;
     displayName: string;
   };
+}
+
+// -------------------------------------------------------------
+// PAYMENTS & RECONCILIATION
+// -------------------------------------------------------------
+
+export interface CreateCheckoutSessionDto {
+  bookingId: string;
+  bookingToken: string;
+  returnUrl: string;
+}
+
+export interface CheckoutSessionResponse {
+  sessionId: string;
+  checkoutUrl: string;
+  amountMinor: number;
+  currency: string;
+}
+
+export interface PaymentWebhookPayload {
+  id: string;
+  type: string;
+  data: {
+    bookingId: string;
+    providerPaymentId: string;
+    amountMinor: number;
+    currency: string;
+    status: 'succeeded' | 'failed';
+  };
+}
+
+// -------------------------------------------------------------
+// ANALYTICS & REPORTING
+// -------------------------------------------------------------
+
+export interface AnalyticsSummaryResponse {
+  dateRange: { start: string; end: string };
+  metrics: {
+    totalBookings: number;
+    confirmedBookings: number;
+    completedBookings: number;
+    cancelledBookings: number;
+    noShowBookings: number;
+    utilizationPercent: number;
+    conversionRatePercent: number;
+  };
+  financials: {
+    grossBookingsMinor: number;
+    completedPaymentsMinor: number;
+    refundsMinor: number;
+    netCollectedMinor: number;
+    currency: string;
+  };
+  popularServices: Array<{
+    serviceId: string;
+    serviceName: string;
+    count: number;
+    revenueMinor: number;
+  }>;
+  staffWorkload: Array<{
+    staffId: string;
+    staffName: string;
+    appointmentsCount: number;
+    utilizationPercent: number;
+  }>;
+}
+
+// -------------------------------------------------------------
+// DEVELOPER PLATFORM (API KEYS & WEBHOOKS)
+// -------------------------------------------------------------
+
+export interface CreateApiKeyDto {
+  name: string;
+  scopes?: string[];
+}
+
+export interface ApiKeyResponse {
+  id: string;
+  name: string;
+  prefix: string;
+  secretKey?: string; // Only displayed once on creation
+  createdAt: string;
+}
+
+export interface CreateWebhookDto {
+  url: string;
+  events: string[];
+}
+
+export interface WebhookResponse {
+  id: string;
+  url: string;
+  events: string[];
+  signingSecret: string;
+  isActive: boolean;
+  createdAt: string;
 }
 
 // -------------------------------------------------------------
